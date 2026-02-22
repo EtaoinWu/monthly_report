@@ -1,0 +1,32 @@
+# Group Stats
+
+This project extracts some statistics from group chat data.
+
+## Quick start with uv
+
+```bash
+uv sync
+uv run ruff check .
+uv run mypy src
+```
+
+## Run from CLI
+
+```bash
+uv run monthly-report --base-dir "<path to history>" --namemap namemap.json --since 2025-08-01 --top 16
+```
+
+## Use from notebook
+
+```python
+from pathlib import Path
+from monthly_report.config import ReportConfig
+from monthly_report.loaders import load_all_messages
+from monthly_report.analysis import build_message_dataframe
+
+config = ReportConfig(base_dir=Path(r"<path to history>"), namemap_file=Path("namemap.json"))
+messages = load_all_messages(config)
+df = build_message_dataframe(messages)
+```
+
+See `stats_visualization.ipynb` for example visualizations.
