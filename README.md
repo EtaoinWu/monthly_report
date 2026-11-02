@@ -8,6 +8,7 @@ This project extracts some statistics from group chat data.
 uv sync
 uv run ruff check .
 uv run mypy src
+uv run python -m unittest discover -s tests -v
 ```
 
 ## Run from CLI
@@ -16,7 +17,52 @@ uv run mypy src
 uv run monthly-report --base-dir "<path to history>" --namemap namemap.json --since 2025-08-01 --top 16
 ```
 
-## Use from notebook
+## Notebook report
+
+Open **`Group Info Scan.ipynb`** using the project's `.venv` kernel and run all cells.
+The configuration cell contains the history directory, name map, date cutoffs and chart controls.
+Restart the kernel after updating dependencies with `uv sync`.
+
+The pipeline uses Polars for tables and aggregations, orjson for JSON decoding, and
+[rjieba](https://github.com/messense/rjieba-py) (Rust) for Chinese segmentation.
+Existing Jieba custom dictionaries are supported; segmentation may differ slightly from Python Jieba.
+Plots use Matplotlib directly without converting tables to pandas.
+
+Files directly inside `BASE_DIR` are loaded as follows:
+
+| File | Source | Identity and date mapping |
+| --- | --- | --- |
+| `*.txt` | Legacy QQ (`qq`) | Existing `q(number)` IDs and local timestamps |
+| `*.qq.json` | QQChatExporter (`qqv2`) | `sender.uin` becomes `q(number)`; `content.text` becomes message text |
+| Other `*.json` | Telegram (`tg`) | Existing `tuser...` IDs |
+
+QQv2 uses the same name map and erased-ID filters as legacy QQ, and is shown separately
+in platform charts. System events are excluded. Replies and forwarded bundles each count
+as one message; nested messages are not expanded. Exports are assumed not to overlap.
+Offset-aware timestamps are converted to `ReportConfig.report_timezone` (default
+`Asia/Shanghai`) and stored without a timezone, matching legacy local dates. Naive
+QQ/TG dates retain their original local times. QQv2 senders without a numeric UIN
+use a separate `quid:...` identity.
+
+Individual pie slices use one randomly assigned bright pastel color per person for the
+kernel session, shared by all pies. `Other` always uses muted gray. Restart the notebook
+to generate a new palette.
+
+The final wordcloud section has independent controls:
+
+```python
+INDIVIDUAL_CLOUD_PAGES = 2       # two pages cover up to 32 people
+INDIVIDUAL_CLOUD_ROWS = 4
+INDIVIDUAL_CLOUD_COLUMNS = 4
+INDIVIDUAL_CLOUD_SINCE = None    # all history; set RECENT_CUTOFF for recent text
+```
+
+People are ranked by message count since `RECENT_CUTOFF`; each page covers the next
+people in that ranking. The title labels counts as recent even when cloud text covers
+all history. Rerun the final cell after changing these controls. `TOP_N` controls only
+the pie charts. Empty clouds and unused slots are handled automatically.
+
+## Package use
 
 ```python
 from pathlib import Path
@@ -29,7 +75,10 @@ messages = load_all_messages(config)
 df = build_message_dataframe(messages)
 ```
 
-See `stats_visualization.ipynb` for example visualizations.
+Table helpers return Polars DataFrames: sender counts have `name` and `msg_len`
+columns; platform counts have a `month` column (`YYYY-MM`) and one count column per
+platform, with missing months filled with zeros. The unconfigured
+`stats_visualization.ipynb` template uses the same pipeline.
 
 ## AI Use Acknowledgement
 

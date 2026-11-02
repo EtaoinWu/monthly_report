@@ -1,10 +1,11 @@
-import json
 import re
 from collections.abc import Iterable, Iterator, Sequence
+from datetime import datetime
 from itertools import tee, zip_longest
+from zoneinfo import ZoneInfo
 
-import dateutil.parser
 import emoji
+import orjson
 
 from monthly_report.models import Message
 
@@ -49,10 +50,10 @@ def parse_qq_messages(
 
         start = match.end()
         end = next_match.start() if next_match else len(raw_text)
-        content = raw_text[start + 1 : end - 2]
+        content = raw_text[start:end].strip("\r\n")
         parsed.append(
             Message(
-                date=dateutil.parser.parse(match.group(1)),
+                date=datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S"),
                 platform="qq",
                 internal_name=match.group(2),
                 name=namemap.get(user_id, "not found"),
@@ -89,20 +90,25 @@ def prettify_name(name: str | None) -> str:
 
 
 def parse_tg_messages(
-    raw_json: str,
+    raw_json: str | bytes,
     *,
     namemap: dict[str, str],
     erased_ids: set[str],
     id_prefix: str = "t",
+    report_timezone: str = "Asia/Shanghai",
 ) -> list[Message]:
-    data = json.loads(raw_json)
+    data = orjson.loads(raw_json)
     messages: Iterable[dict[str, object]] = data.get("messages", [])
     parsed: list[Message] = []
 
     for entry in messages:
         entry_type = str(entry.get("type", ""))
         from_id = str(entry.get("from_id", ""))
-        if entry_type != "message" or from_id in erased_ids:
+        if (
+            entry_type != "message"
+            or from_id in erased_ids
+            or f"{id_prefix}{from_id}" in erased_ids
+        ):
             continue
 
         user_id = f"{id_prefix}{from_id}"
@@ -124,7 +130,7 @@ def parse_tg_messages(
 
         parsed.append(
             Message(
-                date=dateutil.parser.parse(str(entry["date"])),
+                date=local_datetime(str(entry["date"]), report_timezone),
                 platform="tg",
                 internal_name=prettify_name(from_name),
                 name=namemap.get(user_id, "not found"),
@@ -140,7 +146,7 @@ def hydrate_names(messages: list[Message], namemap: dict[str, str]) -> None:
     guessed = {
         msg.user_id: (
             msg.internal_name
-            if msg.platform == "qq"
+            if msg.platform in {"qq", "qqv2"}
             else prettify_name(msg.internal_name)
         )
         for msg in messages
@@ -148,3 +154,44 @@ def hydrate_names(messages: list[Message], namemap: dict[str, str]) -> None:
     }
     for msg in messages:
         msg.name = namemap.get(msg.user_id, guessed.get(msg.user_id, msg.user_id))
+
+
+def local_datetime(value: str, report_timezone: str) -> datetime:
+    """Keep legacy naive export dates; convert offset-aware dates into report time."""
+    date = datetime.fromisoformat(value)
+    if date.tzinfo is not None:
+        date = date.astimezone(ZoneInfo(report_timezone)).replace(tzinfo=None)
+    return date
+
+
+def parse_qqv2_messages(
+    raw_json: str | bytes,
+    *,
+    namemap: dict[str, str],
+    erased_ids: set[str],
+    id_prefix: str = "q",
+    report_timezone: str = "Asia/Shanghai",
+) -> list[Message]:
+    """Map QQChatExporter records to legacy QQ identities, without expanding forwards."""
+    parsed: list[Message] = []
+    for entry in orjson.loads(raw_json).get("messages", []):
+        if entry.get("system") or entry.get("type") == "system":
+            continue
+        sender = entry.get("sender", {})
+        uin = sender.get("uin")
+        # UID fallback must never collide with numeric legacy QQ IDs.
+        user_id = f"{id_prefix}({uin})" if uin else f"{id_prefix}uid:{sender['uid']}"
+        if user_id in erased_ids:
+            continue
+        internal_name = sender.get("groupCard") or sender.get("name") or sender.get("nickname")
+        parsed.append(
+            Message(
+                date=local_datetime(entry["time"], report_timezone),
+                platform="qqv2",
+                internal_name=internal_name or user_id,
+                name=namemap.get(user_id, "not found"),
+                user_id=user_id,
+                message=strip_leading_mentions(entry.get("content", {}).get("text", "")),
+            )
+        )
+    return parsed

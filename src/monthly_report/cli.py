@@ -13,9 +13,7 @@ from monthly_report.loaders import load_all_messages
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Load QQ/TG history and print key report tables"
-    )
+    parser = argparse.ArgumentParser(description="Load QQ/TG history and print key report tables")
     parser.add_argument(
         "--base-dir",
         type=Path,
@@ -51,9 +49,9 @@ def main() -> None:
 
     print(json.dumps({"message_count": len(messages), "members": int(counts.shape[0])}, indent=2))
     print("\nTop members:")
-    print(counts.head(args.top).to_string())
+    print(counts.head(args.top))
     print("\nPlatform by month:")
-    print(platform.to_string())
+    print(platform)
 
 
 if __name__ == "__main__":

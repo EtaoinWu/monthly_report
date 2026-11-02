@@ -8,6 +8,8 @@ class ReportConfig:
     namemap_file: Path = Path("namemap.json")
     qq_pattern: str = "*.txt"
     tg_pattern: str = "*.json"
+    qqv2_pattern: str = "*.qq.json"
+    report_timezone: str = "Asia/Shanghai"
     qq_prefix: str = "q"
     tg_prefix: str = "t"
     erased_ids: set[str] = field(default_factory=set)
